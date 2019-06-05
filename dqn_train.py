@@ -26,8 +26,9 @@ def initialise_env():
 
     return kuka
 
-def kuka_camera(cam_dim, effector_coords, effector_quatrn, init_cam_vec, init_up_vec):
-    rot_matrix    = np.array(p.getMatrixFromQuaternion(effector_quatrn)).reshape(3, 3)
+def kuka_camera(cam_dim, eff_coords, eff_quatrn, init_cam_vec, init_up_vec):
+    q_matrix      = p.getMatrixFromQuaternion(eff_quatrn)
+    rot_matrix    = np.array(q_matrix).reshape(3, 3)
     camera_vector = rot_matrix.dot(init_cam_vec)
     up_vector     = rot_matrix.dot(init_up_vec)
 
@@ -38,8 +39,8 @@ def kuka_camera(cam_dim, effector_coords, effector_quatrn, init_cam_vec, init_up
         farVal=100
     )
     view_matrix = p.computeViewMatrix(
-        cameraEyePosition=effector_coords,
-        cameraTargetPosition=effector_coords + 0.1 * camera_vector,
+        cameraEyePosition=eff_coords,
+        cameraTargetPosition=eff_coords + 0.1 * camera_vector,
         cameraUpVector=up_vector,
     )
     image = p.getCameraImage(
@@ -144,7 +145,7 @@ def train_dqn(config):
         cameraTargetPosition=config['viewport_pos'],
         cameraDistance=config['viewport_dist'],
         cameraPitch=config['viewport_pitch'],
-        cameraYaw=config['viewport_yaw'],
+        cameraYaw=config['viewport_yaw']
     )
 
     prev_state = []
@@ -176,7 +177,8 @@ def train_dqn(config):
             )
 
         # Step Simulation
-        [p.stepSimulation() for _ in range(config['simulation_steps_per_action'])]
+        steps = config['simulation_steps_per_action']
+        [p.stepSimulation() for _ in range(steps)]
 
         # Set Up Camera
         effector_state = p.getLinkState(
@@ -188,12 +190,13 @@ def train_dqn(config):
         # Calculate Input States
         image_state = kuka_camera(
             cam_dim=config['kuka_cam_dim'],
-            effector_coords=effector_state[0],
-            effector_quatrn=effector_state[1],
+            eff_coords=effector_state[0],
+            eff_quatrn=effector_state[1],
             init_cam_vec=(0, 0, 1),
             init_up_vec=(1, 0, 0)
         )
-        joint_state = [p.getJointState(kuka, j)[0] for j in range(config['kuka_axis_count'])]
+        axes_range = list(range(config['kuka_axis_count']))
+        joint_state = [p.getJointState(kuka, j)[0] for j in axes_range]
         input_state = {
             'image_input': np.array([image_state]),
             'joint_input': np.array([joint_state])
@@ -212,17 +215,16 @@ def train_dqn(config):
 
         # Target Joint States
         target_joint_state = joint_state.copy()
-        joint_domains      = [5.8, 4, 5.8, 4, 5.8, 4, 6]
         joint_index        = action//2
         if action % 2 == 0:
             target_joint_state[joint_index] += config['kuka_rotation_rad']
         else:
             target_joint_state[joint_index] -= config['kuka_rotation_rad']
         for j, joint in enumerate(target_joint_state):
-            if joint > joint_domains[j] / 2:
-                target_joint_state[j] = joint_domains[j]
-            elif joint < -joint_domains[j] / 2:
-                target_joint_state[j] = -joint_domains[j]
+            if joint > config['kuka_joint_range'][j] / 2:
+                target_joint_state[j] = config['kuka_joint_range'][j]
+            elif joint < -config['kuka_joint_range'][j] / 2:
+                target_joint_state[j] = -config['kuka_joint_range'][j]
 
         # Control
         p.setJointMotorControlArray(
@@ -239,7 +241,8 @@ def train_dqn(config):
         # Playing Around with Reward Schema
         obj_pos  = p.getBasePositionAndOrientation(obj)[0]
         # obj_dist = math.sqrt(obj_pos[0]**2 + obj_pos[1]**2)
-        # obj_dist = math.sqrt((obj_pos[0]-prev_xy[0])**2 + (obj_pos[1]-prev_xy[1])**2)
+        # obj_dist = math.sqrt((obj_pos[0]-prev_xy[0])**2 + \
+        #            (obj_pos[1]-prev_xy[1])**2)
         # reward = obj_dist
         # reward = (effector_state[0][2] - 0.5) * 10
         # prev_xy = [obj_pos[0], obj_pos[1]]
@@ -259,7 +262,8 @@ def train_dqn(config):
             print('  epsilon     = {}'.format(epsilon))
 
             # Store Memory Sample
-            memory_sample = [prev_state, action, reward, [image_state, joint_state]]
+            current_state = [image_state, joint_state]
+            memory_sample = [prev_state, action, reward, current_state]
             memory.append(memory_sample)
 
             # Pop Excess Memory
@@ -289,8 +293,10 @@ def train_dqn(config):
                                config['kuka_cam_dim'],
                                config['kuka_cam_dim'],
                                3))
-            joint_x = np.zeros(shape=(mini_batch_size, config['kuka_axis_count']))
-            targets = np.zeros(shape=(mini_batch_size, config['kuka_action_dim']))
+            joint_x = np.zeros(shape=(mini_batch_size,
+                               config['kuka_axis_count']))
+            targets = np.zeros(shape=(mini_batch_size,
+                               config['kuka_action_dim']))
 
             # Update Training Data
             for index, sample in enumerate(batch):

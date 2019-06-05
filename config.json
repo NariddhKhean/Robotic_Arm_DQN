@@ -1,0 +1,25 @@
+{
+    "viewport_pos": [0, 0, 0],
+    "viewport_dist": 2,
+    "viewport_pitch": -15,
+    "viewport_yaw": -60,
+
+    "kuka_cam_dim": 32,
+    "kuka_axis_count": 7,
+    "kuka_action_dim": 14,
+    "kuka_rotation_rad": 2,
+    "kuka_reset_pose": [0.0, -0.942, 0.0, 0.942, 0.0, -0.942, 0.0],
+
+    "simulation_reset_iter": 100,
+    "simulation_steps_per_action": 4,
+
+    "model_save_interval": 100,
+
+    "batch_size": 64,
+    "alpha": 1,
+    "gamma": 0.99,
+    "lambda": 0.0001,
+    "init_epsilon": 1.0,
+    "final_epsilon": 0.2,
+    "max_memeory": 10000
+}
